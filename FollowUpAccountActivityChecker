@@ -1,0 +1,18 @@
+public class FollowUpAccountActivityChecker implements Schedulable {
+    
+    public void execute(SchedulableContext sc) {
+        // Query for Accounts that were notified 3 days ago and still have no activity
+        List<Account> accountsToDeactivate = [SELECT Id, Name 
+                                              FROM Account 
+                                              WHERE NotificationDate__c = LAST_N_DAYS:3 
+                                              AND Id NOT IN (SELECT AccountId 
+                                                             FROM Contact 
+                                                             WHERE LastActivityDate >= LAST_N_DAYS:3)];
+
+        for (Account acc : accountsToDeactivate) {
+            // Set the account to inactive
+            acc.Status__c = 'Inactive';
+        }
+        update accountsToDeactivate;
+    }
+}
