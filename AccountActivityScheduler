@@ -1,0 +1,5 @@
+global class AccountActivityScheduler implements Schedulable {
+    global void execute(SchedulableContext sc) {
+        AccountActivityChecker.checkAccountActivity();
+    }
+}
