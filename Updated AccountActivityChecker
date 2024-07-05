@@ -1,0 +1,76 @@
+public class AccountActivityChecker {
+    
+    public static void checkAccountActivity() {
+        // Query for Accounts with no activity on any Contact in the last 87 days
+        List<Account> accountsToCheck = [SELECT Id, Name, OwnerId, NotificationDate__c, Business_Type__c,
+                                         (SELECT Id FROM Contacts WHERE LastActivityDate < :Date.today().addDays(-87)) 
+                                         FROM Account];
+        
+        List<Account> accountsToUpdate = new List<Account>();
+        
+        // Notify the Sales team about the accounts
+        for (Account acc : accountsToCheck) {
+            try {
+                // Check if NotificationDate__c is null or older than 3 days
+                if (acc.NotificationDate__c == null || acc.NotificationDate__c < Date.today().addDays(-3)) {
+                    // Update the notification date
+                    Account accToUpdate = new Account(Id = acc.Id, Business_Type__c = acc.Business_Type__c, NotificationDate__c = Date.today());
+                    accountsToUpdate.add(accToUpdate);
+                    
+                    // Send notification to Sales team
+                    sendNotificationToSalesTeam(acc);
+                }
+            } catch (Exception e) {
+                System.debug('Error processing account: ' + acc.Id + ', Error: ' + e.getMessage());
+            }
+        }
+        
+        // Update the accounts with the new notification date
+        if (!accountsToUpdate.isEmpty()) {
+             try {
+                // Suppress validation rules
+                Database.SaveResult[] results = Database.update(accountsToUpdate, false);
+                
+                // Check results for errors
+                for (Database.SaveResult result : results) {
+                    if (!result.isSuccess()) {
+                        for (Database.Error error : result.getErrors()) {
+                            System.debug('Failed to update account: ' + result.getId() + '. Error: ' + error.getStatusCode() + ': ' + error.getMessage());
+                        }
+                    }
+                }
+                System.debug('Updated accounts: ' + accountsToUpdate);
+            }
+            catch (Exception e) {
+                System.debug('Failed to update accounts: ' + e.getMessage());
+            }
+        }
+        
+        // Schedule a follow-up check in 3 days
+        Datetime followUpTime = System.now().addDays(3);
+        String cronExp = followUpTime.format('ss mm HH dd MM ? yyyy');
+        System.schedule('FollowUpAccountActivityCheck', cronExp, new FollowUpAccountActivityChecker());
+    }
+    
+    public static void sendNotificationToSalesTeam(Account acc) {
+        try {
+            CustomNotificationType notificationType = [SELECT Id FROM CustomNotificationType WHERE DeveloperName = 'Account_Inactive_Notification' LIMIT 1];
+            
+            if (notificationType != null) {
+                Messaging.CustomNotification notification = new Messaging.CustomNotification();
+                notification.setTitle('Account Inactivity Notification');
+                notification.setNotificationTypeId(notificationType.Id);
+                notification.setBody('Account ' + acc.Name + ' has had no activity in the last 87 days. It will be set to inactive in 3 days if no activity is recorded.');
+                notification.setTargetId(acc.Id);
+                
+                Set<String> userIds = new Set<String>();
+                userIds.add(acc.OwnerId);
+                notification.send(userIds);
+            } else {
+                System.debug('Custom Notification Type not found');
+            }
+        } catch (Exception e) {
+            System.debug('Problem sending notification: ' + e.getMessage());
+        }
+    }
+}
